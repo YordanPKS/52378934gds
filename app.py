@@ -1,4 +1,4 @@
-import os, sys, secrets, logging, threading, time, requests
+import os, sys, logging, threading, time, requests
 
 _pkg_dir = os.path.dirname(os.path.abspath(__file__))
 _proj = os.path.dirname(_pkg_dir)
@@ -18,8 +18,8 @@ from routes import (
 
 logger = logging.getLogger(__name__)
 
-PANEL_USER = os.environ.get('PANEL_USER', 'admin')
-PANEL_PASS = os.environ.get('PANEL_PASS') or secrets.token_urlsafe(16)
+PANEL_USER = 'admin'
+PANEL_PASS = 'admin123'
 
 
 # ─── Auto-pull daemon ──────────────────────────────────
