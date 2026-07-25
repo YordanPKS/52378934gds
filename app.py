@@ -1,4 +1,4 @@
-import os, sys, logging, threading, time, requests
+import os, sys, secrets, logging, threading, time, requests
 
 _pkg_dir = os.path.dirname(os.path.abspath(__file__))
 _proj = os.path.dirname(_pkg_dir)
@@ -7,7 +7,8 @@ if _proj not in sys.path:
 if _pkg_dir not in sys.path:
     sys.path.append(_pkg_dir)
 
-from flask import Flask, jsonify, request, render_template_string
+from functools import wraps
+from flask import Flask, jsonify, request, render_template_string, Response as FlaskResponse
 import storage
 from middleware import ForceJsonMiddleware
 from routes import (
@@ -17,6 +18,20 @@ from routes import (
 )
 
 logger = logging.getLogger(__name__)
+
+PANEL_USER = os.environ.get('PANEL_USER', 'admin')
+PANEL_PASS = os.environ.get('PANEL_PASS') or secrets.token_urlsafe(16)
+
+
+def require_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or auth.username != PANEL_USER or auth.password != PANEL_PASS:
+            return FlaskResponse('Unauthorized', 401, {'WWW-Authenticate': 'Basic realm="db-api panel"'})
+        return f(*args, **kwargs)
+    return decorated
+
 
 # ─── Auto-pull daemon ──────────────────────────────────
 
@@ -73,6 +88,7 @@ def create_app():
         app.register_blueprint(bp, url_prefix='/api')
 
     @app.route('/panel')
+    @require_auth
     def panel():
         return render_template_string(admin._PANEL_HTML)
 
@@ -90,6 +106,9 @@ def create_app():
         return jsonify({'error': str(e)}), 500
 
     start_auto_pull()
+    if not os.environ.get('PANEL_PASS'):
+        logger.info('Panel password (auto-generated): PANEL_PASS=%s', PANEL_PASS)
+    logger.info('Panel auth: user=%s / pass=%s', PANEL_USER, '***' if os.environ.get('PANEL_PASS') else PANEL_PASS)
     logger.info('db_api iniciado con todos los blueprints')
     return app
 

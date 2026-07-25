@@ -9,3 +9,7 @@ services:
         value: 3.12.0
       - key: RENDER
         value: "true"
+      - key: PANEL_USER
+        value: admin
+      - key: PANEL_PASS
+        sync: false
