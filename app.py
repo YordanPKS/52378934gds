@@ -7,7 +7,7 @@ if _proj not in sys.path:
 if _pkg_dir not in sys.path:
     sys.path.append(_pkg_dir)
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import storage
 from middleware import ForceJsonMiddleware
 from routes import (
