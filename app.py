@@ -1,4 +1,4 @@
-import os, sys, logging, threading, time, requests
+import os, sys, secrets, logging, threading, time, requests
 
 _pkg_dir = os.path.dirname(os.path.abspath(__file__))
 _proj = os.path.dirname(_pkg_dir)
