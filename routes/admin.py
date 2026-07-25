@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from flask import Blueprint, request, jsonify, Response as FlaskResponse, render_template_string
+from flask import Blueprint, request, jsonify, Response as FlaskResponse
 import storage as s
 
 bp = Blueprint('admin', __name__)
@@ -45,11 +45,6 @@ def import_upload():
     except (json.JSONDecodeError, TypeError) as e:
         return jsonify({'error': f'Invalid JSON: {e}'}), 400
     return jsonify(_import_dump(dump))
-
-
-@bp.route('/panel', methods=['GET'])
-def panel_page():
-    return render_template_string(_PANEL_HTML)
 
 
 _PANELS = ('users', 'products', 'licenses', 'transactions', 'settings',

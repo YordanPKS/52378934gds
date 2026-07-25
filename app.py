@@ -7,7 +7,7 @@ if _proj not in sys.path:
 if _pkg_dir not in sys.path:
     sys.path.append(_pkg_dir)
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template_string
 import storage
 from middleware import ForceJsonMiddleware
 from routes import (
@@ -71,6 +71,10 @@ def create_app():
                files.bp, wallet_keystores.bp, bot_states.bp, backup_server.bp,
                code_update.bp):
         app.register_blueprint(bp, url_prefix='/api')
+
+    @app.route('/panel')
+    def panel():
+        return render_template_string(admin._PANEL_HTML)
 
     @app.route('/')
     def index():
