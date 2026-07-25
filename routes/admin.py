@@ -30,15 +30,17 @@ def export_download():
 
 @bp.route('/admin/import/upload', methods=['POST'])
 def import_upload():
-    body = request.get_json(silent=True) or {}
+    raw = None
     if 'file' in request.files:
         raw = request.files['file'].read()
-    elif body.get('data'):
-        import base64
-        raw = base64.b64decode(body['data'])
-    elif body.get('raw'):
-        raw = body['raw'].encode() if isinstance(body['raw'], str) else body['raw']
     else:
+        body = request.get_json(silent=True) or {}
+        if body.get('data'):
+            import base64
+            raw = base64.b64decode(body['data'])
+        elif body.get('raw'):
+            raw = body['raw'].encode() if isinstance(body['raw'], str) else body['raw']
+    if not raw:
         return jsonify({'error': 'send file or {data: base64}'}), 400
     try:
         dump = json.loads(raw)

@@ -1,3 +1,6 @@
+from io import BytesIO
+
+
 class ForceJsonMiddleware:
     def __init__(self, app):
         self.app = app
@@ -11,8 +14,7 @@ class ForceJsonMiddleware:
                     body = environ['wsgi.input'].read(length)
                     if body and body[0:1] == b'{':
                         environ['CONTENT_TYPE'] = 'application/json'
-                        from io import BytesIO
-                        environ['wsgi.input'] = BytesIO(body)
+                    environ['wsgi.input'] = BytesIO(body)
             except Exception:
                 pass
         return self.app(environ, start_response)
