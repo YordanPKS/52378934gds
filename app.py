@@ -91,6 +91,7 @@ def create_app():
         if pwd == PANEL_PASS:
             session['panel_auth'] = True
             return jsonify({'ok': True})
+        logger.warning('Panel login failed: submitted=%s expected=%s', pwd, PANEL_PASS)
         return jsonify({'ok': False, 'error': 'Invalid password'}), 401
 
     @app.route('/panel/logout', methods=['POST'])
@@ -112,9 +113,7 @@ def create_app():
         return jsonify({'error': str(e)}), 500
 
     start_auto_pull()
-    if not os.environ.get('PANEL_PASS'):
-        logger.info('Panel password (auto-generated): PANEL_PASS=%s', PANEL_PASS)
-    logger.info('Panel auth: user=%s / pass=%s', PANEL_USER, '***' if os.environ.get('PANEL_PASS') else PANEL_PASS)
+    logger.info('Panel login: user=%s pass=%s', PANEL_USER, PANEL_PASS)
     logger.info('db_api iniciado con todos los blueprints')
     return app
 
