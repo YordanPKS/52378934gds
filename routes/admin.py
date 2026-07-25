@@ -167,11 +167,15 @@ async function uploadImport(input) {
   const file = input.files?.[0];
   if (!file) return;
   const el = document.getElementById('result');
-  el.className = 'info'; el.textContent = 'Subiendo e importando...';
-  const fd = new FormData();
-  fd.append('file', file);
+  el.className = 'info'; el.textContent = 'Leyendo archivo...';
   try {
-    const r = await fetch('/api/admin/import/upload', { method: 'POST', body: fd });
+    const text = await file.text();
+    el.textContent = 'Importando...';
+    const r = await fetch('/api/admin/import/upload', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({raw: text})
+    });
     const j = await r.json();
     if (j.ok) {
       el.className = 'ok';
