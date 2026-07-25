@@ -7,8 +7,7 @@ if _proj not in sys.path:
 if _pkg_dir not in sys.path:
     sys.path.append(_pkg_dir)
 
-from functools import wraps
-from flask import Flask, jsonify, request, render_template_string, Response as FlaskResponse
+from flask import Flask, jsonify, request, render_template_string, session, redirect
 import storage
 from middleware import ForceJsonMiddleware
 from routes import (
@@ -21,16 +20,6 @@ logger = logging.getLogger(__name__)
 
 PANEL_USER = os.environ.get('PANEL_USER', 'admin')
 PANEL_PASS = os.environ.get('PANEL_PASS') or secrets.token_urlsafe(16)
-
-
-def require_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth = request.authorization
-        if not auth or auth.username != PANEL_USER or auth.password != PANEL_PASS:
-            return FlaskResponse('Unauthorized', 401, {'WWW-Authenticate': 'Basic realm="db-api panel"'})
-        return f(*args, **kwargs)
-    return decorated
 
 
 # ─── Auto-pull daemon ──────────────────────────────────
@@ -87,10 +76,27 @@ def create_app():
                code_update.bp):
         app.register_blueprint(bp, url_prefix='/api')
 
-    @app.route('/panel')
-    @require_auth
+    app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
+
+    @app.route('/panel', methods=['GET'])
     def panel():
+        if not session.get('panel_auth'):
+            return render_template_string(_LOGIN_HTML)
         return render_template_string(admin._PANEL_HTML)
+
+    @app.route('/panel/login', methods=['POST'])
+    def panel_login():
+        data = request.get_json(silent=True) or {}
+        pwd = data.get('password', '')
+        if pwd == PANEL_PASS:
+            session['panel_auth'] = True
+            return jsonify({'ok': True})
+        return jsonify({'ok': False, 'error': 'Invalid password'}), 401
+
+    @app.route('/panel/logout', methods=['POST'])
+    def panel_logout():
+        session.pop('panel_auth', None)
+        return jsonify({'ok': True})
 
     @app.route('/')
     def index():
@@ -115,6 +121,51 @@ def create_app():
 
 app = create_app()
 app.wsgi_app = ForceJsonMiddleware(app.wsgi_app)
+
+_LOGIN_HTML = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>db-api Panel</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#0f0f13; color:#e4e4e7; display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px; }
+  .card { background:#1a1a24; border-radius:16px; padding:32px; max-width:380px; width:100%; box-shadow:0 8px 32px rgba(0,0,0,0.4); text-align:center; }
+  h1 { font-size:20px; font-weight:600; margin-bottom:4px; }
+  .sub { color:#888; font-size:13px; margin-bottom:24px; }
+  input { width:100%; padding:12px 16px; border-radius:10px; border:1px solid #333; background:#23232f; color:#e4e4e7; font-size:15px; outline:none; transition:border .2s; }
+  input:focus { border-color:#3b82f6; }
+  .btn { width:100%; padding:12px; border-radius:10px; font-size:15px; font-weight:500; cursor:pointer; border:none; margin-top:12px; background:#3b82f6; color:#fff; transition:background .2s; }
+  .btn:hover { background:#2563eb; }
+  #error { font-size:12px; color:#ef4444; margin-top:10px; min-height:18px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>&#x1f4e6; db-api Backup</h1>
+  <p class="sub">Ingres&aacute; la contrase&ntilde;a del panel</p>
+  <input type="password" id="password" placeholder="Contrase&ntilde;a" autofocus onkeydown="if(event.key==='Enter') login()">
+  <button class="btn" onclick="login()">Ingresar</button>
+  <div id="error"></div>
+</div>
+<script>
+async function login() {
+  const pwd = document.getElementById('password').value;
+  const el = document.getElementById('error');
+  if (!pwd) { el.textContent = 'Ingres&aacute; la contrase&ntilde;a'; return; }
+  try {
+    const r = await fetch('/panel/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:pwd}) });
+    const j = await r.json();
+    if (j.ok) { location.reload(); }
+    else { el.textContent = j.error || 'Contrase&ntilde;a incorrecta'; }
+  } catch(e) { el.textContent = 'Error de conexi&oacute;n'; }
+}
+</script>
+</body>
+</html>
+"""
 
 if __name__ == '__main__':
     port = int(os.environ.get('DB_API_PORT', 5100))

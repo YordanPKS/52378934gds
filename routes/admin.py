@@ -134,7 +134,7 @@ _PANEL_HTML = """
   </div>
 
   <div id="result"></div>
-  <div class="footer">db-api &mdash; <span id="tables-info"></span></div>
+  <div class="footer">db-api &mdash; <span id="tables-info"></span> &mdash; <a href="#" onclick="logout()" style="color:#888;text-decoration:none">cerrar sesi&oacute;n</a></div>
 </div>
 
 <script>
@@ -174,6 +174,8 @@ async function uploadImport(input) {
   }
   input.value = '';
 }
+
+async function logout() { await fetch('/panel/logout', {method:'POST'}); location.reload(); }
 
 fetch('/api/admin/export').then(r => r.json()).then(d => {
   const total = Object.values(d).reduce((a, b) => a + (Array.isArray(b) ? b.length : 0), 0);
