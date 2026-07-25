@@ -12,4 +12,4 @@ services:
       - key: PANEL_USER
         value: admin
       - key: PANEL_PASS
-        sync: false
+        value: admin123
