@@ -1,7 +1,10 @@
 import json
+import logging
 from datetime import datetime
 from flask import Blueprint, request, jsonify, Response as FlaskResponse
 import storage as s
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint('admin', __name__)
 
@@ -63,23 +66,30 @@ def _export_all():
 
 def _import_dump(dump):
     imported = {}
+    errors = []
     for table in _PANELS:
         records = dump.get(table, [])
         count = 0
         for rec in records:
-            rid = rec.pop('id', None)
-            existing = None
-            if table == 'settings':
-                existing = s.find_one('settings', key=rec.get('key'))
-            elif rid:
-                existing = s.get(table, rid)
-            if existing:
-                s.update(table, existing['id'], rec)
-            else:
-                s.insert(table, rec)
-            count += 1
+            try:
+                rid = rec.pop('id', None)
+                existing = None
+                if table == 'settings':
+                    existing = s.find_one('settings', key=rec.get('key'))
+                elif rid:
+                    existing = s.get(table, rid)
+                if existing:
+                    s.update(table, existing['id'], rec)
+                else:
+                    s.insert(table, rec)
+                count += 1
+            except Exception as e:
+                errors.append({'table': table, 'error': str(e)})
         imported[table] = count
-    return {'ok': True, 'imported': imported}
+    result = {'ok': True, 'imported': imported}
+    if errors:
+        result['errors'] = errors
+    return result
 
 
 _PANEL_HTML = """

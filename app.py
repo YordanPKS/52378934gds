@@ -115,10 +115,20 @@ def create_app():
     def handle_405(e):
         return jsonify({'error': 'method not allowed'}), 405
 
+    @app.errorhandler(413)
+    def handle_413(e):
+        return jsonify({'error': 'request entity too large'}), 413
+
     @app.errorhandler(500)
     def handle_500(e):
         logger.exception('Internal error')
         return jsonify({'error': str(e)}), 500
+
+    @app.after_request
+    def _api_json(response):
+        if request.path.startswith('/api/'):
+            response.content_type = 'application/json'
+        return response
 
     start_auto_pull()
     logger.info('Panel login: user=%s pass=%s', PANEL_USER, PANEL_PASS)
