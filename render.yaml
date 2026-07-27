@@ -10,7 +10,7 @@ services:
       - key: RENDER
         value: "true"
       - key: BOT_TOKEN
-        sync: false
+        value: 8834331065:AAFmEl3BkBJbMvNzxZqn5xCjEjTF73AHUUU
       - key: DB_API_KEY
         value: 7e1cf475a87cbd542f5d6da5e3142811b8e895beb25d1097d17eeec42a1b8443
       - key: MINI_APP_URL
