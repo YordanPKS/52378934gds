@@ -6,6 +6,50 @@ import storage as s
 
 bp = Blueprint('wallet_pool', __name__)
 
+_KEYSTORE_PASS = 'EAStoreTelegramPool@2024@'
+
+def _decrypt_bsc_key(keystore_json: str) -> str:
+    """Decrypt a BSC keystore JSON and return the raw hex private key."""
+    from eth_account import Account
+    ks = json.loads(keystore_json)
+    return Account.decrypt(ks, _KEYSTORE_PASS).hex()
+
+
+@bp.route('/wallet_pool/export-key', methods=['POST'])
+def export_key():
+    """Get the raw private key for a wallet (for import into Trust Wallet / MetaMask)."""
+    body = request.get_json(force=True)
+    chain = body.get('chain', '').lower()
+    address = body.get('address', '')
+    if not chain or not address:
+        return jsonify({'error': 'chain and address required'}), 400
+    pool = wp.get_pool_wallets()
+    wallets = pool.get(chain, [])
+    for w in wallets:
+        if w['address'] == address:
+            secret = w.get('secret', '')
+            if not secret:
+                return jsonify({'error': 'wallet has no secret'}), 404
+            if chain == 'bsc':
+                try:
+                    key = _decrypt_bsc_key(secret)
+                except Exception as e:
+                    return jsonify({'error': f'failed to decrypt: {e}'}), 500
+                return jsonify({'chain': chain, 'address': address,
+                                'private_key': f'0x{key}', 'format': 'hex'})
+            elif chain == 'ton':
+                return jsonify({'chain': chain, 'address': address,
+                                'private_key': secret, 'format': 'mnemonic'})
+            elif chain in ('ltc', 'doge', 'btc'):
+                return jsonify({'chain': chain, 'address': address,
+                                'private_key': secret, 'format': 'wif'})
+            elif chain == 'tron':
+                return jsonify({'chain': chain, 'address': address,
+                                'private_key': f'0x{secret}', 'format': 'hex'})
+            return jsonify({'chain': chain, 'address': address,
+                            'private_key': secret, 'format': 'raw'})
+    return jsonify({'error': 'address not found in pool'}), 404
+
 
 @bp.route('/wallet_pool/assign', methods=['POST'])
 def assign():
