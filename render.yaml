@@ -9,4 +9,9 @@ services:
         value: 3.12.0
       - key: RENDER
         value: "true"
-
+      - key: BOT_TOKEN
+        sync: false
+      - key: DB_API_KEY
+        value: 7e1cf475a87cbd542f5d6da5e3142811b8e895beb25d1097d17eeec42a1b8443
+      - key: MINI_APP_URL
+        value: https://ea-store-telegram.onrender.com
