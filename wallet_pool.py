@@ -1,6 +1,6 @@
 """Wallet Pool System — Multi-address pool + robust scanner + price feed."""
 
-import json, os, time, logging, threading, hashlib, base58, random, io
+import json, os, time, logging, threading, hashlib, base58, random
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 
@@ -29,7 +29,6 @@ if _custom_bsc_rpc and _custom_bsc_rpc not in BSC_RPC_ENDPOINTS:
     BSC_RPC_ENDPOINTS.insert(0, _custom_bsc_rpc)
 
 USDT_CONTRACT_ADDRESS = os.environ.get('USDT_CONTRACT_ADDRESS', '0x55d398326f99059fF775485246999027B3197955')
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '')
 PAYMENT_TOLERANCE = float(os.environ.get('PAYMENT_TOLERANCE', '0.005'))
 
 BLOCKCYPHER_ENDPOINTS = {
@@ -569,136 +568,20 @@ def get_balance(chain: str, address: str) -> float:
     return 0.0
 
 # ===========================================================================
-# PAYMENT DETECTION — Notifications via Telegram
+# PAYMENT PROCESSING — Confirm transactions, activate licenses
 # ===========================================================================
 
-def _send_telegram_message(chat_id, text, parse_mode='Markdown'):
-    if not BOT_TOKEN:
-        return
+BOT_API_URL = os.environ.get('BOT_API_URL', 'https://ea-store-telegram.onrender.com')
+
+
+def _notify_bot_payment_confirmed(tx_id):
+    """Notify the bot that a payment was confirmed (bot will send EA)."""
     try:
-        requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage', json={
-            'chat_id': chat_id, 'text': text, 'parse_mode': parse_mode,
-        }, timeout=10)
+        requests.post(f'{BOT_API_URL}/api/notify-payment-confirmed',
+                      json={'tx_id': tx_id, 'secret': os.environ.get('NOTIFY_SECRET', 'ea-sync-2026')},
+                      timeout=10)
     except Exception as e:
-        logger.error('Telegram notify error: %s', e)
-
-def _get_wallet_log_group_id():
-    entry = s.find_one('settings', key='wallet_log_group_id')
-    if entry and entry.get('value'):
-        try:
-            return int(entry['value'])
-        except (ValueError, TypeError):
-            pass
-    gid = os.environ.get('WALLET_LOG_GROUP_ID', '')
-    if gid:
-        return int(gid)
-    return None
-
-def _notify_payment_detected(user, amount_usdt, chain, tx_ref=None):
-    group_id = _get_wallet_log_group_id()
-    if not group_id:
-        return
-    label = user.get('first_name') or user.get('username') or f"User #{user['id']}"
-    text = (
-        f'\U0001f4b0 *Dep\xf3sito detectado --- {chain}*\n'
-        f'\U0001f464 *Usuario:* `{label}`\n'
-        f'\U0001f194 *ID:* `{user["id"]}`\n'
-        f'\U0001f4b5 *Valor:* `{amount_usdt:.6f} USDT`\n'
-        + (f'\U0001f517 *Tx:* `{tx_ref}`\n' if tx_ref else '')
-        + '\U0001f4e5 *Acreditado a balance*'
-    )
-    _send_telegram_message(group_id, text)
-
-def _notify_alert(msg: str):
-    group_id = _get_wallet_log_group_id()
-    if not group_id:
-        return
-    _send_telegram_message(group_id, f'\u26a0\ufe0f *Alerta:* {msg}')
-
-# ===========================================================================
-# PAYMENT PROCESSING — Confirm transactions, send EA, activate licenses
-# ===========================================================================
-
-MINI_APP_URL = os.environ.get('MINI_APP_URL', 'https://ea-store-telegram.onrender.com')
-
-
-def _send_ea_to_user(user, transaction):
-    """Send EA file to user via Telegram after payment confirmation."""
-    try:
-        product = s.get('products', transaction.get('product_id'))
-        if not product:
-            logger.error('send_ea_to_user: product not found for tx %s', transaction.get('id'))
-            return
-        try:
-            import telebot
-            bot = telebot.TeleBot(BOT_TOKEN, parse_mode='Markdown')
-        except Exception as e:
-            logger.error('send_ea_to_user: failed to create bot: %s', e)
-            return
-        from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-
-        telegram_id = user.get('telegram_id')
-        if not telegram_id:
-            logger.error('send_ea_to_user: user %s has no telegram_id', user.get('id'))
-            return
-
-        plan = s.get('plans', transaction.get('plan_id'))
-        plan_label = plan['label'] if plan else 'Sin plan'
-        lic = s.get('licenses', transaction.get('license_id'))
-        license_key = (lic['license_key'] if lic else '').strip()
-        keyboard = InlineKeyboardMarkup()
-        keyboard.add(InlineKeyboardButton('\U0001f6d2 Abrir Tienda', web_app=WebAppInfo(url=MINI_APP_URL)))
-
-        if license_key:
-            caption = (
-                f'\u2705 *{product["name"]}* \u2014 {plan_label}\n\n'
-                f'*Tu licencia:*\n`{license_key}`\n\n'
-                f'*Estado:* Activa'
-            )
-        else:
-            caption = (f'\u2705 *{product["name"]}* \u2014 {plan_label}\n\n*Estado:* Activa')
-
-        sent = False
-        local_path = product.get('local_file_path')
-        if local_path and os.path.exists(local_path):
-            try:
-                with open(local_path, 'rb') as f:
-                    buf = io.BytesIO(f.read())
-                buf.name = product.get('file_name') or product['name'] + (os.path.splitext(local_path)[1] or '.ex4')
-                bot.send_document(telegram_id, buf,
-                    caption=caption + '\n\n\U0001f4e5 Te adjuntamos el archivo del EA.',
-                    reply_markup=keyboard, parse_mode='Markdown')
-                sent = True
-                logger.info('EA enviado desde archivo local a user %s (product %s)', user['id'], product['id'])
-            except Exception as e:
-                logger.warning('local file send failed for %s: %s', product['name'], e)
-
-        if not sent:
-            file_id = product.get('file_id') or product.get('file_url')
-            if file_id:
-                try:
-                    bot.send_document(telegram_id, file_id,
-                        caption=caption + '\n\n\U0001f4e5 Te adjuntamos el archivo del EA.',
-                        reply_markup=keyboard, parse_mode='Markdown')
-                    sent = True
-                    logger.info('EA enviado por file_id a user %s (product %s)', user['id'], product['id'])
-                except Exception as e:
-                    logger.warning('file_id send failed for %s: %s', product['name'], e)
-
-        if not sent:
-            text = caption + '\n\n\U0001f4e5 El archivo del EA no est\u00e1 disponible. Contact\u00e1 al administrador.'
-            try:
-                bot.send_message(telegram_id, text, reply_markup=keyboard, parse_mode='Markdown')
-            except Exception as e:
-                logger.error('send_ea_to_user: fallback failed for user %s: %s', user['id'], e)
-                try:
-                    bot.send_message(telegram_id, text.replace('*', '').replace('_', ' '), reply_markup=keyboard)
-                except Exception as e2:
-                    logger.error('send_ea_to_user: plain text fallback failed for user %s: %s', user['id'], e2)
-
-        logger.info('send_ea_to_user END: user=%s tx=%s sent=%s', user.get('id'), transaction.get('id'), sent)
-    except Exception as e:
-        logger.error('send_ea_to_user EXCEPTION for user %s: %s', user.get('id'), e, exc_info=True)
+        logger.warning('Failed to notify bot about confirmed payment tx=%s: %s', tx_id, e)
 
 
 def _confirm_transaction(user, pending, balance_used=False):
@@ -737,8 +620,9 @@ def _confirm_transaction(user, pending, balance_used=False):
             })
             logger.info('Commission %.2f USDT to referrer #%s', commission, ref['id'])
 
-    threading.Thread(target=_send_ea_to_user, args=(user, pending), daemon=True).start()
-    _notify_payment_detected(user, pending['amount_usdt'], 'Balance' if balance_used else 'Wallet')
+    logger.info('Payment confirmed: user=%s tx=%s amount=%.2f', user['id'], pending['id'], pending.get('amount_usdt', 0))
+
+    threading.Thread(target=_notify_bot_payment_confirmed, args=(pending['id'],), daemon=True).start()
 
 def _get_pending_for_address(chain: str, address: str) -> list:
     pending = s.find('transactions', status='pending')
@@ -796,7 +680,7 @@ def _process_wallet(chain: str, wallet: dict) -> dict:
                            user['id'], chain, diff, best_match['id'])
         else:
             if diff >= 1.0:
-                _notify_alert(f'Unmatched deposit: {diff:.4f} USDT on {chain} {address[:16]}')
+                logger.warning('Unmatched deposit: %.4f USDT on %s %s', diff, chain, address[:16])
 
     wallet['last_balance'] = current_usdt
     wallet['last_checked'] = datetime.utcnow().isoformat()

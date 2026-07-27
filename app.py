@@ -15,7 +15,6 @@ from routes import (
     users, products, settings, admin, plans, shared_wallets,
     licenses, transactions, referral_earnings, withdrawal_requests,
     tickets, files, wallet_keystores, bot_states, backup_server, code_update,
-    wallet_pool,
 )
 
 logger = logging.getLogger(__name__)
@@ -90,7 +89,7 @@ def create_app():
                shared_wallets.bp, licenses.bp, transactions.bp,
                referral_earnings.bp, withdrawal_requests.bp, tickets.bp,
                files.bp, wallet_keystores.bp, bot_states.bp, backup_server.bp,
-               code_update.bp, wallet_pool.bp):
+               code_update.bp):
         app.register_blueprint(bp, url_prefix='/api')
 
     app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
@@ -148,13 +147,6 @@ def create_app():
         return response
 
     start_auto_pull()
-
-    try:
-        import wallet_pool as wp
-        wp.initialize_pool()
-        wp.start_background_scanner()
-    except Exception as e:
-        logger.warning('Wallet pool init (non-fatal): %s', e)
 
     logger.info('Panel login: user=%s pass=%s', PANEL_USER, PANEL_PASS)
     logger.info('db_api iniciado con todos los blueprints')
