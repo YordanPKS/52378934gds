@@ -50,7 +50,7 @@ CHAIN_CONFIG = {
 ALL_CHAINS = ['bsc', 'ton', 'ltc', 'doge', 'btc', 'tron']
 
 # ===========================================================================
-# PRICE FEED — Multi-source with fallback
+# PRICE FEED — Multi-source with fallback (CoinCap → CoinGecko → Kucoin → Binance)
 # ===========================================================================
 
 class PriceFeed:
@@ -78,7 +78,13 @@ class PriceFeed:
 
     @classmethod
     def _fetch(cls, symbol: str) -> Optional[float]:
-        for name, fn in [('coingecko', cls._coingecko), ('binance', cls._binance)]:
+        sources = [
+            ('coincap', cls._coincap),
+            ('coingecko', cls._coingecko),
+            ('kucoin', cls._kucoin),
+            ('binance', cls._binance),
+        ]
+        for name, fn in sources:
             try:
                 p = fn(symbol)
                 if p and p > 0:
@@ -86,6 +92,21 @@ class PriceFeed:
             except Exception as e:
                 logger.debug('PriceFeed %s failed for %s: %s', name, symbol, e)
         return None
+
+    # ── CoinCap (primary — 200 req/min, no key) ──
+
+    @staticmethod
+    def _coincap(symbol: str) -> Optional[float]:
+        ids = {'bnb': 'binance-coin', 'ton': 'the-open-network', 'ltc': 'litecoin',
+               'doge': 'dogecoin', 'btc': 'bitcoin'}
+        cid = ids.get(symbol)
+        if not cid:
+            return None
+        r = requests.get(f'https://api.coincap.io/v2/assets/{cid}', timeout=10)
+        data = r.json()
+        return float(data['data']['priceUsd'])
+
+    # ── CoinGecko ──
 
     @staticmethod
     def _coingecko(symbol: str) -> Optional[float]:
@@ -97,6 +118,20 @@ class PriceFeed:
         r = requests.get('https://api.coingecko.com/api/v3/simple/price',
                          params={'ids': cid, 'vs_currencies': 'usd'}, timeout=10)
         return r.json().get(cid, {}).get('usd')
+
+    # ── Kucoin (no key needed for public ticker) ──
+
+    @staticmethod
+    def _kucoin(symbol: str) -> Optional[float]:
+        pairs = {'bnb': 'BNB-USDT', 'ton': 'TON-USDT', 'ltc': 'LTC-USDT',
+                 'doge': 'DOGE-USDT', 'btc': 'BTC-USDT'}
+        pair = pairs.get(symbol)
+        if not pair:
+            return None
+        r = requests.get(f'https://api.kucoin.com/api/v1/market/orderbook/level1?symbol={pair}', timeout=10)
+        return float(r.json()['data']['price'])
+
+    # ── Binance (fallback, geo-restricted in some regions) ──
 
     @staticmethod
     def _binance(symbol: str) -> Optional[float]:
