@@ -121,7 +121,10 @@ def crypto_amounts():
         return jsonify({'error': 'amount (USDT) required'}), 400
     prices = wp.PriceFeed.get_all()
     amounts = {
-        'bsc': {'token': 'USDT', 'amount': round(price_usdt, 2)},
+        'bsc': [
+            {'token': 'BNB', 'amount': round(price_usdt / prices.get('bnb', 0), 4) if prices.get('bnb', 0) > 0 else None},
+            {'token': 'USDT', 'amount': round(price_usdt, 2)},
+        ],
         'tron': {'token': 'USDT', 'amount': round(price_usdt, 2)},
     }
     p = prices.get('ton', 0)
