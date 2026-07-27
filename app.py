@@ -10,10 +10,12 @@ if _pkg_dir not in sys.path:
 from flask import Flask, jsonify, request, render_template_string, session, redirect
 import storage
 from middleware import ForceJsonMiddleware
+from auth import require_api_key
 from routes import (
     users, products, settings, admin, plans, shared_wallets,
     licenses, transactions, referral_earnings, withdrawal_requests,
     tickets, files, wallet_keystores, bot_states, backup_server, code_update,
+    wallet_pool,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,11 +71,26 @@ def create_app():
         if request.method in ('POST', 'PUT', 'PATCH') and request.data and not request.content_type:
             request.environ['CONTENT_TYPE'] = 'application/json'
 
+    @app.before_request
+    def _check_auth():
+        if request.method == 'OPTIONS':
+            return
+        if request.path in ('/', '/api/health') or request.path.startswith('/panel'):
+            return
+        if request.path.startswith('/api/'):
+            api_key = os.environ.get('DB_API_KEY', '')
+            if not api_key:
+                return
+            auth = request.headers.get('Authorization', '')
+            if auth.startswith('Bearer ') and auth[7:] == api_key:
+                return
+            return jsonify({'error': 'unauthorized'}), 401
+
     for bp in (users.bp, products.bp, settings.bp, admin.bp, plans.bp,
                shared_wallets.bp, licenses.bp, transactions.bp,
                referral_earnings.bp, withdrawal_requests.bp, tickets.bp,
                files.bp, wallet_keystores.bp, bot_states.bp, backup_server.bp,
-               code_update.bp):
+               code_update.bp, wallet_pool.bp):
         app.register_blueprint(bp, url_prefix='/api')
 
     app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
@@ -131,6 +148,14 @@ def create_app():
         return response
 
     start_auto_pull()
+
+    try:
+        import wallet_pool as wp
+        wp.initialize_pool()
+        wp.start_background_scanner()
+    except Exception as e:
+        logger.warning('Wallet pool init (non-fatal): %s', e)
+
     logger.info('Panel login: user=%s pass=%s', PANEL_USER, PANEL_PASS)
     logger.info('db_api iniciado con todos los blueprints')
     return app
