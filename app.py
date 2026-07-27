@@ -15,7 +15,9 @@ from routes import (
     users, products, settings, admin, plans, shared_wallets,
     licenses, transactions, referral_earnings, withdrawal_requests,
     tickets, files, wallet_keystores, bot_states, backup_server, code_update,
+    wallet_pool as wallet_pool_routes,
 )
+import wallet_pool as wp
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +91,14 @@ def create_app():
                shared_wallets.bp, licenses.bp, transactions.bp,
                referral_earnings.bp, withdrawal_requests.bp, tickets.bp,
                files.bp, wallet_keystores.bp, bot_states.bp, backup_server.bp,
-               code_update.bp):
+               code_update.bp, wallet_pool_routes.bp):
         app.register_blueprint(bp, url_prefix='/api')
+
+    try:
+        wp.initialize_pool()
+        wp.start_background_scanner()
+    except Exception as e:
+        logger.warning('Wallet pool init (non-fatal): %s', e)
 
     app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
 
