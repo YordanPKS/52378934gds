@@ -1,5 +1,4 @@
-import json
-import logging
+import json, os, base64, logging
 from datetime import datetime
 from flask import Blueprint, request, jsonify, Response as FlaskResponse
 import storage as s
@@ -52,7 +51,7 @@ def import_upload():
     return jsonify(_import_dump(dump))
 
 
-_PANELS = ('users', 'products', 'licenses', 'transactions', 'settings',
+_PANELS = ('users', 'products', 'plans', 'licenses', 'transactions', 'settings',
            'referral_earnings', 'withdrawal_requests', 'tickets',
            'shared_wallets', 'wallet_keystores', 'bot_states')
 
@@ -61,6 +60,32 @@ def _export_all():
     data = {}
     for table in _PANELS:
         data[table] = s.all(table)
+
+    # Wallet pool
+    _pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pool_file = os.path.join(_pkg_dir, '.wallet_pool.json')
+    if os.path.exists(pool_file):
+        try:
+            with open(pool_file, 'r') as f:
+                data['_wallet_pool'] = json.load(f)
+        except Exception as e:
+            logger.warning('Error reading wallet pool: %s', e)
+
+    # EA files
+    uploads_dir = os.path.join(_pkg_dir, 'uploads', 'eas')
+    eas = {}
+    if os.path.isdir(uploads_dir):
+        for root, dirs, fnames in os.walk(uploads_dir):
+            for fname in fnames:
+                fp = os.path.join(root, fname)
+                rel = os.path.relpath(fp, uploads_dir)
+                try:
+                    with open(fp, 'rb') as f:
+                        eas[rel] = base64.b64encode(f.read()).decode()
+                except Exception as e:
+                    logger.warning('Error reading EA file %s: %s', rel, e)
+    data['_ea_files'] = eas
+
     return data
 
 
@@ -86,6 +111,34 @@ def _import_dump(dump):
             except Exception as e:
                 errors.append({'table': table, 'error': str(e)})
         imported[table] = count
+
+    # Wallet pool
+    if '_wallet_pool' in dump:
+        try:
+            _pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            pool_file = os.path.join(_pkg_dir, '.wallet_pool.json')
+            with open(pool_file, 'w') as f:
+                json.dump(dump['_wallet_pool'], f, indent=2)
+            imported['_wallet_pool'] = 1
+        except Exception as e:
+            errors.append({'table': '_wallet_pool', 'error': str(e)})
+
+    # EA files
+    if '_ea_files' in dump:
+        _pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        uploads_dir = os.path.join(_pkg_dir, 'uploads', 'eas')
+        count = 0
+        for rel_path, b64_data in dump['_ea_files'].items():
+            try:
+                fp = os.path.join(uploads_dir, rel_path.replace('/', os.sep))
+                os.makedirs(os.path.dirname(fp), exist_ok=True)
+                with open(fp, 'wb') as f:
+                    f.write(base64.b64decode(b64_data))
+                count += 1
+            except Exception as e:
+                errors.append({'table': '_ea_files', 'error': f'{rel_path}: {e}'})
+        imported['_ea_files'] = count
+
     result = {'ok': True, 'imported': imported}
     if errors:
         result['errors'] = errors
@@ -128,17 +181,17 @@ _PANEL_HTML = """
 <body>
 <div class="card">
   <h1>&#x1f4e6; db-api Backup</h1>
-  <p class="sub">Export / Import JSON de la base de datos</p>
+    <p class="sub">Export / Import completo: BD + EA files + wallet pool</p>
 
   <div class="section">
     <h2>&#x2b07;&#xfe0f; Exportar</h2>
-    <p>Descarg&aacute; un snapshot completo de la base de datos en JSON.</p>
+    <p>Descarg&aacute; un snapshot completo (tablas, wallet pool y archivos EA).</p>
     <button class="btn btn-primary" onclick="downloadExport()">&#x2b07;&#xfe0f; Descargar JSON</button>
   </div>
 
   <div class="section">
     <h2>&#x2b06;&#xfe0f; Importar</h2>
-    <p>Seleccion&aacute; un archivo JSON exportado previamente para restaurar la base de datos.</p>
+    <p>Seleccion&aacute; un archivo JSON exportado para restaurar tablas, wallet pool y EA files.</p>
     <label class="btn btn-outline" style="cursor:pointer">
       &#x1f4c2; Seleccionar archivo
       <input type="file" accept=".json" onchange="uploadImport(this)">
