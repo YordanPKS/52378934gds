@@ -152,11 +152,39 @@ class PriceFeed:
 
 _pool_cache: Dict[str, list] = None
 _pool_lock = threading.Lock()
+_POOL_MIGRATED = False
+
+def _migrate_pool_wifs():
+    """Convert existing uncompressed WIFs (no 0x01 flag) to compressed for LTC/DOGE/BTC."""
+    global _pool_cache
+    changed = False
+    for chain in ('ltc', 'doge', 'btc'):
+        for w in _pool_cache.get(chain, []):
+            secret = w.get('secret', '')
+            if not secret:
+                continue
+            try:
+                raw = base58.b58decode(secret)
+                if len(raw) == 37:
+                    version = raw[0:1]
+                    key_bytes = raw[1:33]
+                    with_flag = version + key_bytes + b'\x01'
+                    cs = hashlib.sha256(hashlib.sha256(with_flag).digest()).digest()[:4]
+                    w['secret'] = base58.b58encode(with_flag + cs).decode()
+                    changed = True
+                    logger.info('Migrated WIF for %s wallet %s', chain, w['address'][:16])
+            except Exception:
+                pass
+    if changed:
+        _save_pool()
 
 def _load_pool() -> Dict[str, list]:
-    global _pool_cache
+    global _pool_cache, _POOL_MIGRATED
     if _pool_cache is not None:
         if isinstance(_pool_cache, dict):
+            if not _POOL_MIGRATED:
+                _migrate_pool_wifs()
+                _POOL_MIGRATED = True
             return _pool_cache
         logger.warning('Pool cache is %s, expected dict, resetting', type(_pool_cache).__name__)
         _pool_cache = None
@@ -170,6 +198,8 @@ def _load_pool() -> Dict[str, list]:
                         logger.warning('Pool file has invalid format, resetting')
                         raise ValueError('Invalid pool format')
                     _pool_cache = data
+                    _migrate_pool_wifs()
+                    _POOL_MIGRATED = True
                 else:
                     raise ValueError('Empty pool file')
         else:
@@ -277,7 +307,7 @@ def _gen_ltc_doge(chain: str) -> Tuple[str, str]:
     address = base58.b58encode(versioned + checksum).decode()
     wif_versions = {'ltc': b'\xb0', 'doge': b'\x9e', 'btc': b'\x80'}
     wv = wif_versions.get(chain, b'\x80')
-    wif_ver = wv + priv_bytes
+    wif_ver = wv + priv_bytes + b'\x01'
     wif_cs = hashlib.sha256(hashlib.sha256(wif_ver).digest()).digest()[:4]
     wif = base58.b58encode(wif_ver + wif_cs).decode()
     return address, wif

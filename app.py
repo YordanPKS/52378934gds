@@ -131,6 +131,29 @@ def create_app():
     def health():
         return jsonify({'status': 'ok', 'db': 'sqlite'})
 
+    _COUNT_SUM_TABLES = {'users', 'products', 'plans', 'licenses', 'transactions',
+                         'settings', 'referral_earnings', 'withdrawal_requests',
+                         'tickets', 'wallet_keystores', 'shared_wallets', 'bot_states'}
+
+    @app.route('/api/<table>/count', methods=['GET'])
+    def api_count(table):
+        if table not in _COUNT_SUM_TABLES:
+            return jsonify({'error': 'not found'}), 404
+        kwargs = {}
+        for key in request.args:
+            kwargs[key] = request.args[key]
+        return jsonify(storage.count(table, **kwargs))
+
+    @app.route('/api/<table>/sum', methods=['GET'])
+    def api_sum(table):
+        if table not in _COUNT_SUM_TABLES:
+            return jsonify({'error': 'not found'}), 404
+        field = request.args.get('field', '')
+        if not field:
+            return jsonify({'error': 'field required'}), 400
+        kwargs = {k: request.args[k] for k in request.args if k != 'field'}
+        return jsonify(storage.sum_field(table, field, **kwargs))
+
     @app.errorhandler(404)
     def handle_404(e):
         return jsonify({'error': 'not found'}), 404
