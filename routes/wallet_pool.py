@@ -8,6 +8,19 @@ bp = Blueprint('wallet_pool', __name__)
 
 _KEYSTORE_PASS = 'EAStoreTelegramPool@2024@'
 
+def _wif_to_hex(wif: str) -> str:
+    """Extract raw 32-byte private key from a WIF string and return as hex."""
+    import base58
+    try:
+        raw = base58.b58decode(wif)
+        if len(raw) == 38:
+            return raw[1:33].hex()
+        if len(raw) == 37:
+            return raw[1:33].hex()
+    except Exception:
+        pass
+    return wif
+
 def _decrypt_bsc_key(keystore_json: str) -> str:
     """Decrypt a BSC keystore JSON and return the raw hex private key."""
     from eth_account import Account
@@ -41,8 +54,10 @@ def export_key():
                 return jsonify({'chain': chain, 'address': address,
                                 'private_key': secret, 'format': 'mnemonic'})
             elif chain in ('ltc', 'doge', 'btc'):
+                raw_key = _wif_to_hex(secret) if secret else None
+                pk = f'0x{raw_key}' if raw_key else secret
                 return jsonify({'chain': chain, 'address': address,
-                                'private_key': secret, 'format': 'wif'})
+                                'private_key': pk, 'format': 'hex'})
             elif chain == 'tron':
                 return jsonify({'chain': chain, 'address': address,
                                 'private_key': f'0x{secret}', 'format': 'hex'})
