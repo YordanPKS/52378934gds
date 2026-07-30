@@ -12,8 +12,9 @@ logger = logging.getLogger(__name__)
 # --- Constants ---
 _pkg_dir = os.path.dirname(os.path.abspath(__file__))
 POOL_FILE = os.path.join(_pkg_dir, '.wallet_pool.json')
-MIN_POOL_SIZE = 3
-TARGET_POOL_SIZE = 5
+MIN_POOL_SIZE = 5
+TARGET_POOL_SIZE = 10
+AUTO_RELEASE_MINUTES = 10
 MAX_RETRIES = 3
 
 BSC_RPC_ENDPOINTS = [
@@ -343,6 +344,7 @@ def add_wallet_to_pool(chain: str, address: str, secret: str) -> bool:
             'secret': secret,
             'label': f'{chain}-{len(pool[chain]) + 1}',
             'assigned_tx_id': None,
+            'assigned_at': None,
             'created_at': datetime.utcnow().isoformat(),
             'last_balance': 0.0,
             'last_checked': None,
@@ -374,6 +376,7 @@ def assign_wallet(chain: str, tx_id: int) -> Optional[str]:
         for w in wallets:
             if not w.get('assigned_tx_id'):
                 w['assigned_tx_id'] = tx_id
+                w['assigned_at'] = datetime.utcnow().isoformat()
                 _save_pool()
                 _save_tx_assignment(tx_id, chain, w['address'])
                 return w['address']
@@ -401,6 +404,7 @@ def release_wallet(chain: str, address: str):
         for w in pool.get(chain, []):
             if w['address'] == address:
                 w['assigned_tx_id'] = None
+                w['assigned_at'] = None
                 _save_pool()
                 return True
     return False
@@ -434,6 +438,7 @@ def release_wallet_by_tx(tx_id: int):
             for w in wallets:
                 if w.get('assigned_tx_id') == tx_id:
                     w['assigned_tx_id'] = None
+                    w['assigned_at'] = None
                     released = True
         if released:
             _save_pool()
@@ -736,8 +741,36 @@ def _process_wallet(chain: str, wallet: dict) -> dict:
     wallet['last_checked'] = datetime.utcnow().isoformat()
     return result
 
+def _release_stale_assignments():
+    """Release wallets assigned > AUTO_RELEASE_MINUTES ago with no payment."""
+    pool = _load_pool()
+    now = datetime.utcnow()
+    released = 0
+    for chain, wallets in pool.items():
+        for w in wallets:
+            assigned_tx_id = w.get('assigned_tx_id')
+            assigned_at = w.get('assigned_at')
+            if not assigned_tx_id or not assigned_at:
+                continue
+            try:
+                age = (now - datetime.fromisoformat(assigned_at)).total_seconds()
+                if age > AUTO_RELEASE_MINUTES * 60:
+                    tx = s.get('transactions', assigned_tx_id)
+                    if tx and tx.get('status') == 'pending':
+                        s.update('transactions', assigned_tx_id, {'status': 'cancelled'})
+                        logger.info('Auto-cancelled stale tx #%s (%s)', assigned_tx_id, chain)
+                    w['assigned_tx_id'] = None
+                    w['assigned_at'] = None
+                    released += 1
+            except Exception:
+                pass
+    if released:
+        _save_pool()
+        logger.info('Released %d stale wallet(s)', released)
+
 def scan_all_wallets() -> dict:
     results = {'scanned': 0, 'credited': 0, 'confirmed': 0, 'errors': 0}
+    _release_stale_assignments()
     pool = get_pool_wallets()
 
     for chain, wallets in pool.items():
