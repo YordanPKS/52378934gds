@@ -116,6 +116,7 @@ def release():
 @bp.route('/wallet_pool/status', methods=['GET'])
 def pool_status():
     """Get pool status (wallets per chain)."""
+    wp.release_stale_assignments()
     pool = wp.get_pool_wallets()
     result = {}
     for chain, wallets in pool.items():
@@ -130,6 +131,7 @@ def pool_status():
 @bp.route('/wallet_pool/wallets', methods=['GET'])
 def list_wallets():
     """Get all wallets with details."""
+    wp.release_stale_assignments()
     chain = request.args.get('chain', '').lower() or None
     pool = wp.get_pool_wallets(chain)
     result = []

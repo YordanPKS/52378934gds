@@ -743,30 +743,51 @@ def _process_wallet(chain: str, wallet: dict) -> dict:
 
 def _release_stale_assignments():
     """Release wallets assigned > AUTO_RELEASE_MINUTES ago with no payment."""
-    pool = _load_pool()
-    now = datetime.utcnow()
     released = 0
-    for chain, wallets in pool.items():
-        for w in wallets:
-            assigned_tx_id = w.get('assigned_tx_id')
-            assigned_at = w.get('assigned_at')
-            if not assigned_tx_id or not assigned_at:
-                continue
-            try:
-                age = (now - datetime.fromisoformat(assigned_at)).total_seconds()
-                if age > AUTO_RELEASE_MINUTES * 60:
+    with _pool_lock:
+        pool = _load_pool()
+        now = datetime.utcnow()
+        for chain, wallets in pool.items():
+            for w in wallets:
+                assigned_tx_id = w.get('assigned_tx_id')
+                assigned_at = w.get('assigned_at')
+                if not assigned_tx_id:
+                    continue
+                if not assigned_at:
+                    # Legacy assignment made before assigned_at was tracked.
+                    # Every new assignment sets assigned_at, so a missing value
+                    # means this wallet was assigned by old code and is stale.
+                    stale = True
+                else:
+                    try:
+                        age = (now - datetime.fromisoformat(assigned_at)).total_seconds()
+                        stale = age > AUTO_RELEASE_MINUTES * 60
+                    except Exception as e:
+                        logger.warning('Bad assigned_at %r for %s %s (%s), releasing: %s',
+                                       assigned_at, chain, w['address'][:16], assigned_tx_id, e)
+                        stale = True
+                if not stale:
+                    continue
+                try:
                     tx = s.get('transactions', assigned_tx_id)
                     if tx and tx.get('status') == 'pending':
                         s.update('transactions', assigned_tx_id, {'status': 'cancelled'})
                         logger.info('Auto-cancelled stale tx #%s (%s)', assigned_tx_id, chain)
-                    w['assigned_tx_id'] = None
-                    w['assigned_at'] = None
-                    released += 1
-            except Exception:
-                pass
-    if released:
-        _save_pool()
-        logger.info('Released %d stale wallet(s)', released)
+                except Exception as e:
+                    logger.warning('Failed to cancel stale tx #%s (%s): %s', assigned_tx_id, chain, e)
+                w['assigned_tx_id'] = None
+                w['assigned_at'] = None
+                released += 1
+                logger.info('Released stale wallet %s (%s) tx #%s', w['address'][:16], chain, assigned_tx_id)
+        if released:
+            _save_pool()
+            logger.info('Released %d stale wallet(s)', released)
+    return released
+
+
+def release_stale_assignments():
+    """Public wrapper: release stale assigned wallets (safe to call often)."""
+    return _release_stale_assignments()
 
 def scan_all_wallets() -> dict:
     results = {'scanned': 0, 'credited': 0, 'confirmed': 0, 'errors': 0}
