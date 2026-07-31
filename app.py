@@ -16,6 +16,7 @@ from routes import (
     licenses, transactions, referral_earnings, withdrawal_requests,
     tickets, files, wallet_keystores, bot_states, backup_server, code_update,
     wallet_pool as wallet_pool_routes,
+    license_validations,
 )
 import wallet_pool as wp
 
@@ -91,7 +92,7 @@ def create_app():
                shared_wallets.bp, licenses.bp, transactions.bp,
                referral_earnings.bp, withdrawal_requests.bp, tickets.bp,
                files.bp, wallet_keystores.bp, bot_states.bp, backup_server.bp,
-               code_update.bp, wallet_pool_routes.bp):
+               code_update.bp, wallet_pool_routes.bp, license_validations.bp):
         app.register_blueprint(bp, url_prefix='/api')
 
     try:
@@ -133,7 +134,8 @@ def create_app():
 
     _COUNT_SUM_TABLES = {'users', 'products', 'plans', 'licenses', 'transactions',
                          'settings', 'referral_earnings', 'withdrawal_requests',
-                         'tickets', 'wallet_keystores', 'shared_wallets', 'bot_states'}
+                         'tickets', 'wallet_keystores', 'shared_wallets', 'bot_states',
+                         'license_validations'}
 
     @app.route('/api/<table>/count', methods=['GET'])
     def api_count(table):

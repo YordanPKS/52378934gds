@@ -74,6 +74,7 @@ SCHEMA = {
         image_url TEXT,
         is_active INTEGER DEFAULT 1,
         plans TEXT DEFAULT '[]',
+        ea_id TEXT,
         created_at TEXT DEFAULT (datetime('now'))
     ''',
     'plans': '''
@@ -176,6 +177,18 @@ SCHEMA = {
         keystore_json TEXT NOT NULL,
         created_at TEXT DEFAULT (datetime('now'))
     ''',
+    'license_validations': '''
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        license_key TEXT,
+        license_id INTEGER,
+        product_id INTEGER,
+        ea_id TEXT,
+        mt4_account TEXT,
+        ip TEXT,
+        result TEXT,
+        detail TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+    ''',
 }
 
 
@@ -190,9 +203,9 @@ def init_db():
 def _migrate(conn):
     migrations = {
         'transactions': ['plan_id INTEGER', 'license_id INTEGER'],
+        'products': ['ea_id TEXT'],
         'tickets': ['message TEXT', "replies TEXT DEFAULT '[]'", 'updated_at TEXT'],
         'licenses': ['plan_id INTEGER'],
-        'products': ['image_url TEXT'],
         'users': ['lifetime INTEGER DEFAULT 0', "lifetime_products TEXT"],
     }
     for table, cols in migrations.items():

@@ -36,6 +36,7 @@ def create_product():
         'image_url': body.get('image_url'),
         'is_active': body.get('is_active', 1),
         'plans': body.get('plans', []),
+        'ea_id': body.get('ea_id'),
     })
     return jsonify(product), 201
 
